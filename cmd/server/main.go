@@ -1,8 +1,6 @@
 package main
 
 import (
-	// Пакет для кодирования данных в JSON-формат.
-	"encoding/json"
 	// Логирование служебных сообщений и ошибок.
 	"log"
 	// Базовый HTTP-сервер из стандартной библиотеки Go.
@@ -19,6 +17,10 @@ import (
 	"local_models_api/internal/config"
 	// Middleware для авторизации по X-API-Key.
 	"local_models_api/internal/auth"
+	// HTTP-хендлеры для API-эндпоинтов.
+	"local_models_api/internal/handler"
+	// HTTP-клиент для взаимодействия с Ollama.
+	"local_models_api/internal/ollama"
 )
 
 // main — точка входа приложения.
@@ -27,6 +29,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	// Создаем клиент для запросов к Ollama (URL берется из конфигурации).
+	ollamaClient := ollama.NewClient(cfg.OllamaURL)
 
 	// Создаем роутер, который будет обрабатывать входящие HTTP-запросы.
 	r := chi.NewRouter()
@@ -38,16 +43,13 @@ func main() {
 	r.Use(middleware.Timeout(6 * time.Minute))
 
 	// Регистрируем GET endpoint для проверки "живости" сервиса.
-	r.Get("/health", handleHealth)
+	r.Get("/health", handler.Health)
 
 	// Группа маршрутов с общим префиксом /v1.
 	// Для всех endpoint внутри группы обязателен валидный X-API-Key.
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(auth.APIKeyMiddleware(cfg.APIKeys))
-		r.Get("/test", func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-		})
+		r.Get("/models", handler.Models(ollamaClient))
 	})
 
 	// Сообщаем в лог, что сервер запускается (порт берётся из ENV).
@@ -58,10 +60,3 @@ func main() {
 	}
 }
 
-// handleHealth возвращает простой JSON-ответ со статусом сервиса.
-func handleHealth(w http.ResponseWriter, r *http.Request) {
-	// Указываем, что ответ будет в формате JSON.
-	w.Header().Set("Content-Type", "application/json")
-	// Отправляем клиенту JSON: {"status":"ok"}.
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-}
