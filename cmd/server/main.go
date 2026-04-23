@@ -50,6 +50,7 @@ func main() {
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(auth.APIKeyMiddleware(cfg.APIKeys))
 		r.Get("/models", handler.Models(ollamaClient))
+		r.Post("/generate", handler.Generate(ollamaClient))
 	})
 
 	// Сообщаем в лог, что сервер запускается (порт берётся из ENV).
