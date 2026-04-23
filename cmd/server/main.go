@@ -17,6 +17,8 @@ import (
 
 	// Загрузка конфигурации из переменных окружения.
 	"local_models_api/internal/config"
+	// Middleware для авторизации по X-API-Key.
+	"local_models_api/internal/auth"
 )
 
 // main — точка входа приложения.
@@ -37,6 +39,16 @@ func main() {
 
 	// Регистрируем GET endpoint для проверки "живости" сервиса.
 	r.Get("/health", handleHealth)
+
+	// Группа маршрутов с общим префиксом /v1.
+	// Для всех endpoint внутри группы обязателен валидный X-API-Key.
+	r.Route("/v1", func(r chi.Router) {
+		r.Use(auth.APIKeyMiddleware(cfg.APIKeys))
+		r.Get("/test", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		})
+	})
 
 	// Сообщаем в лог, что сервер запускается (порт берётся из ENV).
 	log.Printf("server starting on :%s", cfg.Port)
