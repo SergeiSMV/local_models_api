@@ -14,10 +14,18 @@ import (
 	"github.com/go-chi/chi/v5"
 	// Набор готовых middleware для логов, recovery, timeout и др.
 	"github.com/go-chi/chi/v5/middleware"
+
+	// Загрузка конфигурации из переменных окружения.
+	"local_models_api/internal/config"
 )
 
 // main — точка входа приложения.
 func main() {
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	// Создаем роутер, который будет обрабатывать входящие HTTP-запросы.
 	r := chi.NewRouter()
 	// Логирует каждый запрос (метод, путь, статус, время выполнения).
@@ -30,10 +38,10 @@ func main() {
 	// Регистрируем GET endpoint для проверки "живости" сервиса.
 	r.Get("/health", handleHealth)
 
-	// Сообщаем в лог, что сервер запускается на порту 8080.
-	log.Println("server starting on :8080")
+	// Сообщаем в лог, что сервер запускается (порт берётся из ENV).
+	log.Printf("server starting on :%s", cfg.Port)
 	// Запускаем HTTP-сервер. При фатальной ошибке завершаем программу.
-	if err := http.ListenAndServe(":8080", r); err != nil {
+	if err := http.ListenAndServe(":"+cfg.Port, r); err != nil {
 		log.Fatal(err)
 	}
 }
