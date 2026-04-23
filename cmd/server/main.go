@@ -1,35 +1,63 @@
 package main
 
 import (
-	// encoding/json нужен для сериализации Go-структур/данных в JSON.
-	"encoding/json"
-	// log используется для вывода служебных сообщений и ошибок в консоль.
+	// Логирование служебных сообщений и ошибок.
 	"log"
-	// net/http — стандартный пакет для HTTP-сервера и маршрутизации запросов.
+	// Базовый HTTP-сервер из стандартной библиотеки Go.
 	"net/http"
+	// Работа со временем (здесь используется для timeout).
+	"time"
+
+	// Chi — легковесный роутер (маршрутизация HTTP-запросов).
+	"github.com/go-chi/chi/v5"
+	// Набор готовых middleware для логов, recovery, timeout и др.
+	"github.com/go-chi/chi/v5/middleware"
+
+	// Загрузка конфигурации из переменных окружения.
+	"local_models_api/internal/config"
+	// Middleware для авторизации по X-API-Key.
+	"local_models_api/internal/auth"
+	// HTTP-хендлеры для API-эндпоинтов.
+	"local_models_api/internal/handler"
+	// HTTP-клиент для взаимодействия с Ollama.
+	"local_models_api/internal/ollama"
 )
 
 // main — точка входа приложения.
 func main() {
-	// Создаем маршрутизатор (mux), который направляет запросы в нужные обработчики.
-	mux := http.NewServeMux()
-	// Регистрируем endpoint проверки состояния сервиса.
-	// Формат "GET /health" означает: обрабатываем только GET-запросы на путь /health.
-	mux.HandleFunc("GET /health", handleHealth)
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	// Логируем, что сервер стартует на порту 8080.
-	log.Println("server starting on :8080")
-	// Запускаем HTTP-сервер и передаем ему маршрутизатор.
-	// Если сервер завершился с ошибкой — останавливаем программу.
-	if err := http.ListenAndServe(":8080", mux); err != nil {
+	// Создаем клиент для запросов к Ollama (URL берется из конфигурации).
+	ollamaClient := ollama.NewClient(cfg.OllamaURL)
+
+	// Создаем роутер, который будет обрабатывать входящие HTTP-запросы.
+	r := chi.NewRouter()
+	// Логирует каждый запрос (метод, путь, статус, время выполнения).
+	r.Use(middleware.Logger)
+	// Перехватывает panic внутри хендлеров, чтобы сервер не падал целиком.
+	r.Use(middleware.Recoverer)
+	// Ограничивает максимальное время обработки одного запроса.
+	r.Use(middleware.Timeout(6 * time.Minute))
+
+	// Регистрируем GET endpoint для проверки "живости" сервиса.
+	r.Get("/health", handler.Health)
+
+	// Группа маршрутов с общим префиксом /v1.
+	// Для всех endpoint внутри группы обязателен валидный X-API-Key.
+	r.Route("/v1", func(r chi.Router) {
+		r.Use(auth.APIKeyMiddleware(cfg.APIKeys))
+		r.Get("/models", handler.Models(ollamaClient))
+		r.Post("/generate", handler.Generate(ollamaClient))
+	})
+
+	// Сообщаем в лог, что сервер запускается (порт берётся из ENV).
+	log.Printf("server starting on :%s", cfg.Port)
+	// Запускаем HTTP-сервер. При фатальной ошибке завершаем программу.
+	if err := http.ListenAndServe(":"+cfg.Port, r); err != nil {
 		log.Fatal(err)
 	}
 }
 
-// handleHealth отвечает на запрос /health и возвращает JSON со статусом сервиса.
-func handleHealth(w http.ResponseWriter, r *http.Request) {
-	// Сообщаем клиенту, что в ответе будет JSON.
-	w.Header().Set("Content-Type", "application/json")
-	// Отправляем простой JSON-объект: {"status":"ok"}.
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-}
