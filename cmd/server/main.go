@@ -1,35 +1,47 @@
 package main
 
 import (
-	// encoding/json нужен для сериализации Go-структур/данных в JSON.
+	// Пакет для кодирования данных в JSON-формат.
 	"encoding/json"
-	// log используется для вывода служебных сообщений и ошибок в консоль.
+	// Логирование служебных сообщений и ошибок.
 	"log"
-	// net/http — стандартный пакет для HTTP-сервера и маршрутизации запросов.
+	// Базовый HTTP-сервер из стандартной библиотеки Go.
 	"net/http"
+	// Работа со временем (здесь используется для timeout).
+	"time"
+
+	// Chi — легковесный роутер (маршрутизация HTTP-запросов).
+	"github.com/go-chi/chi/v5"
+	// Набор готовых middleware для логов, recovery, timeout и др.
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 // main — точка входа приложения.
 func main() {
-	// Создаем маршрутизатор (mux), который направляет запросы в нужные обработчики.
-	mux := http.NewServeMux()
-	// Регистрируем endpoint проверки состояния сервиса.
-	// Формат "GET /health" означает: обрабатываем только GET-запросы на путь /health.
-	mux.HandleFunc("GET /health", handleHealth)
+	// Создаем роутер, который будет обрабатывать входящие HTTP-запросы.
+	r := chi.NewRouter()
+	// Логирует каждый запрос (метод, путь, статус, время выполнения).
+	r.Use(middleware.Logger)
+	// Перехватывает panic внутри хендлеров, чтобы сервер не падал целиком.
+	r.Use(middleware.Recoverer)
+	// Ограничивает максимальное время обработки одного запроса.
+	r.Use(middleware.Timeout(6 * time.Minute))
 
-	// Логируем, что сервер стартует на порту 8080.
+	// Регистрируем GET endpoint для проверки "живости" сервиса.
+	r.Get("/health", handleHealth)
+
+	// Сообщаем в лог, что сервер запускается на порту 8080.
 	log.Println("server starting on :8080")
-	// Запускаем HTTP-сервер и передаем ему маршрутизатор.
-	// Если сервер завершился с ошибкой — останавливаем программу.
-	if err := http.ListenAndServe(":8080", mux); err != nil {
+	// Запускаем HTTP-сервер. При фатальной ошибке завершаем программу.
+	if err := http.ListenAndServe(":8080", r); err != nil {
 		log.Fatal(err)
 	}
 }
 
-// handleHealth отвечает на запрос /health и возвращает JSON со статусом сервиса.
+// handleHealth возвращает простой JSON-ответ со статусом сервиса.
 func handleHealth(w http.ResponseWriter, r *http.Request) {
-	// Сообщаем клиенту, что в ответе будет JSON.
+	// Указываем, что ответ будет в формате JSON.
 	w.Header().Set("Content-Type", "application/json")
-	// Отправляем простой JSON-объект: {"status":"ok"}.
+	// Отправляем клиенту JSON: {"status":"ok"}.
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
